@@ -1,6 +1,6 @@
 """Gene fusion detection with Arriba."""
 
-from pathlib import Path
+import pandas as pd
 from plumbum import TEE
 from resolwe.process import (
     Cmd,
@@ -8,8 +8,20 @@ from resolwe.process import (
     FileField,
     Process,
     SchedulingClass,
-    StringField,
 )
+
+
+def get_contig_names(gtf_file):
+    """Get unique contig names.
+
+    List of contig (chromosome) names is required by arriba (parameter -i).
+    This function covers possible edge cases where contig names are not common.
+    """
+
+    gtf = pd.read_csv(gtf_file, sep="\t", header=None, usecols=[0])
+    contigs = set(gtf[0])
+    out = " ".join(list(contigs))
+    return out
 
 
 class Arriba(Process):
@@ -29,17 +41,17 @@ class Arriba(Process):
     name = "Arriba"
     process_type = "data:genefusions:arriba"
     version = "1.0.0"
-    category = "RNA-Seq"
+    category = "gene-fusions"
     scheduling_class = SchedulingClass.BATCH
     entity = {"type": "sample"}
     requirements = {
         "expression-engine": "jinja",
         "executor": {
-            "docker": {"image": "public.ecr.aws/genialis/resolwebio/rnaseq:6.2.0"}
+            "docker": {"image": "public.ecr.aws/genialis/resolwebio/rnaseq:6.3.0"}
         },
         "resources": {
-            "cores": 4,
-            "memory": 16384,
+            "cores": 1,
+            "memory": 12288,
         },
     }
     data_name = '{{ bam|name|default("?") }}'
@@ -48,37 +60,20 @@ class Arriba(Process):
         """Input fields for Arriba process."""
 
         bam = DataField("alignment:bam:star", label="Input BAM file from STAR aligner")
-        chim_out_type = StringField(
-            label="Chimeric output type",
-            description="Specify the chimeric output type.",
-            choices=["WithinBam", "SAMSeparateOld"],
-            default="WithinBam",
-        )
-        output_file = StringField(
-            label="Output file",
-            description="Name of the output file for predicted fusions.",
-            default="fusions.tsv",
-        )
-        discarded_fusions_file = StringField(
-            label="Discarded fusions file",
-            description="Name of the output file for discarded fusions.",
-            default="discarded_fusions.tsv",
-        )
         gtf_file = DataField(
-            "annotation",
+            data_type="annotation",
             label="GTF file",
             description="Annotation file in GTF format.",
         )
-        blacklist_file = DataField(
-            "genelist",
-            label="Blacklist file",
-            description="Blacklist file of fusion genes.",
-            required=False,
+        genome_file = DataField(
+            data_type="genome",
+            label="Genome file",
+            description="Genome file in FASTA format.",
         )
-        known_fusions_file = DataField(
-            "genelist",
-            label="Known fusions file",
-            description="Known fusions file.",
+        blacklist_file = DataField(
+            data_type="file",
+            label="Blacklist file",
+            description="Arriba blacklist file.",
             required=False,
         )
 
@@ -92,41 +87,45 @@ class Arriba(Process):
     def run(self, inputs, outputs):
         """Run Arriba to detect fusions from RNA-Seq data."""
 
-        # Determine the correct BAM file depending on the chimOutType
-        if inputs.chim_out_type == "WithinBam":
-            bam_file = inputs.bam.output.bam
-        elif inputs.chim_out_type == "SAMSeparateOld":
-            bam_file = inputs.bam.output.chimeric
-        else:
-            self.error("Invalid chimeric output type specified.")
+        bam_file = inputs.bam.output.bam
 
-        # Construct the Arriba command
-        cmd = (
-            f"arriba "
-            f"-x {bam_file.path} "
-            f"-o {inputs.output_file} "
-            f"-O {inputs.discarded_fusions_file} "
-            f"-a {inputs.gtf_file.output.annot.path} "
-        )
+        contigs = get_contig_names(inputs.gtf_file.output.annot.path)
+
+        sample_slug = self.entity.slug
+        output_file = f"{sample_slug}_fusions.tsv"
+        discarded_fusions_file = f"{sample_slug}_discarded_fusions.tsv"
+
+        cmd = [
+            "arriba",
+            "-x",
+            bam_file.path,
+            "-o",
+            output_file,
+            "-O",
+            discarded_fusions_file,
+            "-a",
+            inputs.gtf_file.output.annot.path,
+            "-g",
+            inputs.genome_file.output.genome.path,
+            "-i",
+            contigs,
+        ]
 
         if inputs.blacklist_file:
-            cmd += f"-g {inputs.blacklist_file.output.genelist.path} "
-        if inputs.known_fusions_file:
-            cmd += f"-k {inputs.known_fusions_file.output.genelist.path} "
+            cmd.extend(["-b", inputs.blacklist_file.output.path])
+        else:
+            cmd.extend(["-f", "blacklist"])
 
-        cmd += "1> arriba.log 2>&1"
+        cmd.extend(["1>", "arriba.log", "2>&1"])
 
-        # Execute the Arriba command
+        final_cmd = " ".join(cmd)
+
         self.progress(0.1)
-        return_code, _, _ = Cmd(cmd) & TEE(retcode=None)
+        return_code, _, _ = Cmd(final_cmd) & TEE(retcode=None)
 
         if return_code:
             self.error("Arriba process failed.")
 
-        # Save the output files
-        outputs.fusions = inputs.output_file
-        outputs.discarded_fusions = inputs.discarded_fusions_file
-        outputs.intergenic_fusions = inputs.intergenic_fusions_file
+        outputs.fusions = output_file
+        outputs.discarded_fusions = discarded_fusions_file
         outputs.log = "arriba.log"
-
-        self.progress(1.0)
