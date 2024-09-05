@@ -22,7 +22,6 @@ def get_contig_names(gtf_file):
 class Arriba(Process):
     """Run Arriba for fusion detection from RNA-Seq data.
 
-    Arriba is a command-line tool for gene fusion detection from RNA-Seq data.
     This process detects gene fusions from RNA-Seq data using the Arriba tool.
     The input can be a BAM file from the STAR aligner, and additional optional
     inputs such as blacklist, protein domains, and known fusions files can be provided.
@@ -54,7 +53,10 @@ class Arriba(Process):
     class Input:
         """Input fields for Arriba process."""
 
-        bam = DataField("alignment:bam:star", label="Input BAM file from STAR aligner")
+        bam = DataField(
+            "alignment:bam:star",
+            label="Input BAM file from STAR ran with parameters suggested by Arriba",
+        )
         gtf_file = DataField(
             data_type="annotation:gtf",
             label="GTF file",
@@ -98,9 +100,9 @@ class Arriba(Process):
             output_file,
             "-O",
             discarded_fusions_file,
-            "-a",
-            inputs.gtf_file.output.annot.path,
             "-g",
+            inputs.gtf_file.output.annot.path,
+            "-a",
             inputs.genome_file.output.genome.path,
             "-i",
             contigs,
