@@ -2,13 +2,8 @@
 
 import pandas as pd
 from plumbum import TEE
-from resolwe.process import (
-    Cmd,
-    DataField,
-    FileField,
-    Process,
-    SchedulingClass,
-)
+
+from resolwe.process import Cmd, DataField, FileField, Process, SchedulingClass
 
 
 def get_contig_names(gtf_file):
@@ -41,7 +36,7 @@ class Arriba(Process):
     name = "Arriba"
     process_type = "data:genefusions:arriba"
     version = "1.0.0"
-    category = "gene-fusions"
+    category = "Gene fusions"
     scheduling_class = SchedulingClass.BATCH
     entity = {"type": "sample"}
     requirements = {
@@ -61,12 +56,12 @@ class Arriba(Process):
 
         bam = DataField("alignment:bam:star", label="Input BAM file from STAR aligner")
         gtf_file = DataField(
-            data_type="annotation",
+            data_type="annotation:gtf",
             label="GTF file",
             description="Annotation file in GTF format.",
         )
         genome_file = DataField(
-            data_type="genome",
+            data_type="seq:nucleotide",
             label="Genome file",
             description="Genome file in FASTA format.",
         )
