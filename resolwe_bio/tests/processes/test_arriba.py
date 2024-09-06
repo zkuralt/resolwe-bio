@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from resolwe.flow.models import Data
 from resolwe.test import tag_process, with_resolwe_host
 
 from resolwe_bio.models import Sample
@@ -45,16 +44,16 @@ class ArribaProcessorTestCase(KBBioProcessTestCase):
 
         arriba_inputs = {
             "bam": bam.id,
-            "gtf_file": gtf_file.id,
-            "genome_file": genome_file.id,
+            "gtf": gtf_file.id,
+            "genome": genome_file.id,
         }
 
         arriba = self.run_process("arriba", arriba_inputs)
 
         # Assert the output files match the expected results
-        self.assertFile(arriba, "fusions", output_folder / "expected_fusions.tsv")
+        self.assertFile(arriba, "fusions", output_folder / "expected_fusions.tsv.gz")
         self.assertFile(
             arriba,
             "discarded_fusions",
-            output_folder / "expected_discarded_fusions.tsv",
+            output_folder / "expected_discarded_fusions.tsv.gz",
         )
